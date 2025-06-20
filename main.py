@@ -1,16 +1,15 @@
 import os
-from telegram import Bot, Update
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from flask import Flask, request
+from threading import Thread
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))  # замени на свой ID группы
 
-user_data = {}
+user_data = {}  # { user_id: {"name": "Tim", "utm": "instagram"} }
 
 app = Flask(__name__)
-bot = Bot(BOT_TOKEN)
-dp = Dispatcher(bot, None, workers=0)  # для синхронной обработки
 
 @app.route('/')
 def home():
@@ -28,11 +27,14 @@ def status():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dp.process_update(update)
-    return "OK", 200
+    update = Update.de_json(request.get_json(force=True), updater.bot)
+    updater.dispatcher.process_update(update)
+    return 'ok'
 
-def start(update, context):
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
+
+def start(update: Update, context: CallbackContext):
     user = update.effective_user
     args = context.args
     utm_source = args[0] if args else "unknown"
@@ -49,7 +51,7 @@ def start(update, context):
         text=f"🔔 @{user.username or user.first_name} начал диалог\nИсточник: {utm_source}"
     )
 
-def forward(update, context):
+def forward(update: Update, context: CallbackContext):
     user = update.message.from_user
     if user.is_bot:
         return
@@ -61,8 +63,22 @@ def forward(update, context):
         text=f"💬 Сообщение от @{user.username or user.first_name}:\n\n{update.message.text}"
     )
 
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
+def main():
+    global updater
+    updater = Updater(BOT_TOKEN, use_context=True)
+
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
+
+    Thread(target=run_flask).start()
+
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=8080,
+        url_path="webhook"
+    )
+    updater.bot.set_webhook("https://kb-varyag-chatbot.onrender.com/webhook")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    main()
