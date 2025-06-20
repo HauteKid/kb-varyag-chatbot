@@ -1,15 +1,16 @@
 import os
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from flask import Flask
-from threading import Thread
+from telegram import Bot, Update
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters
+from flask import Flask, request
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))  # замени на свой ID группы
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))
 
-user_data = {}  # { user_id: {"name": "Tim", "utm": "instagram"} }
+user_data = {}
 
-app = Flask('')
+app = Flask(__name__)
+bot = Bot(BOT_TOKEN)
+dp = Dispatcher(bot, None, workers=0)  # для синхронной обработки
 
 @app.route('/')
 def home():
@@ -25,10 +26,13 @@ def status():
     response += "</ul>"
     return response
 
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dp.process_update(update)
+    return "OK", 200
 
-def start(update: Update, context: CallbackContext):
+def start(update, context):
     user = update.effective_user
     args = context.args
     utm_source = args[0] if args else "unknown"
@@ -45,12 +49,11 @@ def start(update: Update, context: CallbackContext):
         text=f"🔔 @{user.username or user.first_name} начал диалог\nИсточник: {utm_source}"
     )
 
-def forward(update: Update, context: CallbackContext):
+def forward(update, context):
     user = update.message.from_user
     if user.is_bot:
         return
     if update.effective_chat.id == GROUP_CHAT_ID:
-        # Игнорируем сообщения из группы, чтобы не дублировать
         return
 
     context.bot.send_message(
@@ -58,15 +61,8 @@ def forward(update: Update, context: CallbackContext):
         text=f"💬 Сообщение от @{user.username or user.first_name}:\n\n{update.message.text}"
     )
 
-def main():
-    Thread(target=run_flask).start()
-
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
-    updater.start_polling()
-    updater.idle()
+dp.add_handler(CommandHandler("start", start))
+dp.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
 
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=8080)
