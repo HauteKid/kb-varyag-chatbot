@@ -1,13 +1,15 @@
 import os
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram import Update, Bot
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from flask import Flask, request
-from threading import Thread
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))  # замени на свой ID группы
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4891677163"))  # замени на свой
 
-user_data = {}  # { user_id: {"name": "Tim", "utm": "instagram"} }
+bot = Bot(token=BOT_TOKEN)
+dispatcher = Dispatcher(bot, None, workers=0)
+
+user_data = {}
 
 app = Flask(__name__)
 
@@ -27,12 +29,9 @@ def status():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), updater.bot)
-    updater.dispatcher.process_update(update)
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
     return 'ok'
-
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
 
 def start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -63,22 +62,15 @@ def forward(update: Update, context: CallbackContext):
         text=f"💬 Сообщение от @{user.username or user.first_name}:\n\n{update.message.text}"
     )
 
+def set_webhook():
+    webhook_url = "https://kb-varyag-chatbot.onrender.com/webhook"
+    bot.set_webhook(webhook_url)
+
 def main():
-    global updater
-    updater = Updater(BOT_TOKEN, use_context=True)
-
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
-
-    Thread(target=run_flask).start()
-
-    updater.start_webhook(
-        listen="0.0.0.0",
-        port=8080,
-        url_path="webhook"
-    )
-    updater.bot.set_webhook("https://kb-varyag-chatbot.onrender.com/webhook")
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward))
+    set_webhook()
+    app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
     main()
